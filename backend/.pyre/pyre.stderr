@@ -1,0 +1,65 @@
+2026-03-02 13:47:25,612 [PID 18196] INFO No binary specified, looking for `pyre.bin` in PATH
+2026-03-02 13:47:25,630 [PID 18196] ERROR Invalid configuration: Cannot locate a Pyre binary to run.
+2026-03-02 13:54:45,432 [PID 9196] INFO Pyre binary is located at `D:\Pranay\Downloads\shravan\pqc\backend\pyre`
+2026-03-02 13:54:45,432 [PID 9196] INFO Could not determine the number of Pyre workers from configuration. Auto-set the value to 3.
+2026-03-02 13:54:45,432 [PID 9196] INFO No typeshed specified, looking for it...
+2026-03-02 13:54:45,432 [PID 9196] INFO Found: `D:\Pranay\Downloads\shravan\pqc\.venv\lib\pyre_check\typeshed`
+2026-03-02 13:54:45,438 [PID 9196] INFO Writing arguments into C:\Users\Pranay\AppData\Local\Temp\pyre_arguments_uot9dimd.json...
+2026-03-02 13:54:45,438 [PID 9196] DEBUG Arguments:
+{
+  "source_paths": {
+    "kind": "simple",
+    "paths": [
+      "D:\\Pranay\\Downloads\\shravan\\pqc\\backend"
+    ]
+  },
+  "search_paths": [
+    "d:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\Lib\\site-packages",
+    "d:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\Lib",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\site-packages",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stdlib",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\aiofiles",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\chevron",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\colorama",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\ExifRead",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\ldap3",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\mysqlclient",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\paramiko",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\psycopg2",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\pycurl",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\PyMySQL",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\python-dateutil",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\pytz",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\PyYAML",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\regex",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\requests",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\retry",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\tqdm",
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\.venv\\lib\\pyre_check\\typeshed\\stubs\\ujson"
+  ],
+  "excludes": [],
+  "checked_directory_allowlist": [
+    "D:\\Pranay\\Downloads\\shravan\\pqc\\backend"
+  ],
+  "checked_directory_blocklist": [],
+  "extensions": [],
+  "log_path": "D:\\Pranay\\Downloads\\shravan\\pqc\\backend\\.pyre",
+  "global_root": "D:\\Pranay\\Downloads\\shravan\\pqc\\backend",
+  "debug": false,
+  "python_version": {
+    "major": 3,
+    "minor": 10,
+    "micro": 2
+  },
+  "system_platform": "win32",
+  "shared_memory": {},
+  "parallel": true,
+  "number_of_workers": 3,
+  "additional_logging_sections": [],
+  "show_error_traces": false,
+  "strict": false
+}
+2026-03-02 13:54:45,438 [PID 9196] ERROR [WinError 2] The system cannot find the file specified
+2026-03-02 13:57:37,202 [PID 14016] INFO No binary specified, looking for `pyre.bin` in PATH
+2026-03-02 13:57:37,213 [PID 14016] ERROR Invalid configuration: Cannot locate a Pyre binary to run.

@@ -1,0 +1,9 @@
+__pycache__/
+*.sqlite3
+*.db
+pqc_secure.db
+.venv/
+venv/
+node_modules/
+.expo/
+.env
