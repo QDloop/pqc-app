@@ -44,14 +44,26 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER)''')
+                 (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS locks
                  (id TEXT PRIMARY KEY, name TEXT, status TEXT, type TEXT, approved INTEGER, token TEXT, last_unlocked_by TEXT, last_unlocked_at TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS permissions
                  (user_id TEXT, lock_id TEXT, UNIQUE(user_id, lock_id))''')
     c.execute('''CREATE TABLE IF NOT EXISTS audit_logs
                  (id TEXT PRIMARY KEY, user_id TEXT, user_name TEXT, lock_id TEXT, lock_name TEXT, action TEXT, result TEXT, message TEXT, timestamp TEXT)''')
-    
+    c.execute('''CREATE TABLE IF NOT EXISTS messages
+                 (id TEXT PRIMARY KEY, sender_id TEXT, receiver_id TEXT, group_id TEXT, content TEXT, type TEXT, timestamp TEXT, is_deleted INTEGER DEFAULT 0, is_edited INTEGER DEFAULT 0, seen_by TEXT DEFAULT '[]')''')
+
+    # Add missing columns to existing users table if upgrading from older schema
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN last_active TEXT")
+    except Exception:
+        pass  # Column already exists
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
+    except Exception:
+        pass  # Column already exists
+
     # Create default admin if missing
     c.execute("SELECT * FROM users WHERE email='admin@example.com'")
     if not c.fetchone():
