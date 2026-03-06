@@ -3,3 +3,5 @@ flask-cors
 pycryptodome
 pqcrypto
 cryptography
+gunicorn
+psycopg2-binary
