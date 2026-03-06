@@ -87,10 +87,13 @@ class PostgresConnectionWrapper:
 def get_db():
     # Use the pool if available, otherwise fall back to SQLite
     if _pg_pool:
-        conn = _pg_pool.getconn()   # borrow a connection from the pool
-        return PostgresConnectionWrapper(conn, pool=_pg_pool)
-    else:
-        conn = sqlite3.connect(DB_NAME)
-        conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            conn = _pg_pool.getconn()   # borrow a connection from the pool
+            return PostgresConnectionWrapper(conn, pool=_pg_pool)
+        except Exception as e:
+            print(f"[db] WARNING: PostgreSQL pool failed ({e}), falling back to SQLite.")
+    # Fallback to SQLite if pool is unavailable or exhausted
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
 
