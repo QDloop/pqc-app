@@ -4,8 +4,10 @@ import re
 try:
     import psycopg2
     from psycopg2.extras import DictCursor
+    from psycopg2 import pool as psycopg2_pool
 except ImportError:
     psycopg2 = None
+    psycopg2_pool = None
 
 DB_NAME = 'pqc_secure.db'
 DB_URL = os.environ.get("DATABASE_URL")
@@ -13,6 +15,16 @@ DB_URL = os.environ.get("DATABASE_URL")
 # Fix Render's postgres:// to postgresql:// (psycopg2 requires the latter)
 if DB_URL and DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
+
+# Create a single shared connection pool (min=1, max=3 connections)
+# This prevents "too many connections" errors on the free PostgreSQL tier
+_pg_pool = None
+if DB_URL and psycopg2_pool:
+    try:
+        _pg_pool = psycopg2_pool.SimpleConnectionPool(1, 3, DB_URL)
+        print("[db] PostgreSQL connection pool created successfully.")
+    except Exception as e:
+        print(f"[db] WARNING: Could not create PostgreSQL pool: {e}. Falling back to SQLite.")
 
 class PostgresCursorWrapper:
     def __init__(self, cursor):
@@ -48,8 +60,9 @@ class PostgresCursorWrapper:
 
 
 class PostgresConnectionWrapper:
-    def __init__(self, conn):
+    def __init__(self, conn, pool=None):
         self.conn = conn
+        self._pool = pool       # keep reference to release back to pool
         self.row_factory = None
 
     def cursor(self):
@@ -64,13 +77,18 @@ class PostgresConnectionWrapper:
         self.conn.commit()
 
     def close(self):
-        self.conn.close()
+        # Return connection back to the pool instead of destroying it
+        if self._pool:
+            self._pool.putconn(self.conn)
+        else:
+            self.conn.close()
 
 
 def get_db():
-    if DB_URL and psycopg2:
-        conn = psycopg2.connect(DB_URL)
-        return PostgresConnectionWrapper(conn)
+    # Use the pool if available, otherwise fall back to SQLite
+    if _pg_pool:
+        conn = _pg_pool.getconn()   # borrow a connection from the pool
+        return PostgresConnectionWrapper(conn, pool=_pg_pool)
     else:
         conn = sqlite3.connect(DB_NAME)
         conn.row_factory = sqlite3.Row
