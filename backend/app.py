@@ -14,6 +14,16 @@ from email.message import EmailMessage
 app = Flask(__name__)
 CORS(app)
 
+import traceback
+from werkzeug.exceptions import HTTPException
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    if isinstance(e, HTTPException):
+        return e
+    return jsonify(error=str(e), traceback=traceback.format_exc()), 500
+
+
 DB_NAME = 'pqc_secure.db'
 signup_otps = {}  # In-memory mapping of email -> OTP for verification
 
