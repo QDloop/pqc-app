@@ -43,6 +43,8 @@ from db import get_db
 def init_db():
     conn = get_db()
     c = conn.cursor()
+    
+    # Step 1: Create all core tables first
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS locks
@@ -53,42 +55,44 @@ def init_db():
                  (id TEXT PRIMARY KEY, user_id TEXT, user_name TEXT, lock_id TEXT, lock_name TEXT, action TEXT, result TEXT, message TEXT, timestamp TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS messages
                  (id TEXT PRIMARY KEY, sender_id TEXT, receiver_id TEXT, group_id TEXT, content TEXT, type TEXT, timestamp TEXT, is_deleted INTEGER DEFAULT 0, is_edited INTEGER DEFAULT 0, seen_by TEXT DEFAULT '[]')''')
+    
+    # Commit creation immediately so tables exist even if later ALTERS fail
+    conn.commit()
 
-    # Add missing columns to existing users table if upgrading from older schema
+    # Step 2: Try adding missing columns (useful for upgrades)
     try:
         c.execute("ALTER TABLE users ADD COLUMN last_active TEXT")
+        conn.commit()
     except Exception:
-        conn.rollback()  # Crucial for PostgreSQL: rollback aborted transaction
+        conn.rollback() 
     try:
         c.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
+        conn.commit()
     except Exception:
-        conn.rollback()  # Crucial for PostgreSQL: rollback aborted transaction
+        conn.rollback()
 
-    # Create default admin if missing
+    # Step 3: Insert default data
     try:
         c.execute("SELECT * FROM users WHERE email='admin@example.com'")
         if not c.fetchone():
-            c.execute("INSERT INTO users (id, email, password, role, name) VALUES (?, ?, ?, ?, ?)",
-                      ('a1', 'admin@example.com', 'admin', 'Admin', 'Administrator'))
+            c.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
+                      ('a1', 'admin@example.com', 'admin', 'Admin', 'Administrator', 1))
 
-        # Create default user if missing
         c.execute("SELECT * FROM users WHERE email='user@example.com'")
         if not c.fetchone():
-            c.execute("INSERT INTO users (id, email, password, role, name) VALUES (?, ?, ?, ?, ?)",
-                      ('u1', 'user@example.com', 'password', 'User', 'Employee'))
+            c.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
+                      ('u1', 'user@example.com', 'password', 'User', 'Employee', 1))
 
-        # Create default lock if missing
         c.execute("SELECT * FROM locks WHERE id='lock1'")
         if not c.fetchone():
             c.execute("INSERT INTO locks (id, name, status, type, approved, token) VALUES (?, ?, ?, ?, ?, ?)",
                       ('lock1', 'Main Entrance', 'Locked', 'HPQC Hub', 1, 'secret1'))
 
-        # Assign default user and admin permissions to lock1
         c.execute("INSERT OR IGNORE INTO permissions (user_id, lock_id) VALUES (?, ?)", ('u1', 'lock1'))
         c.execute("INSERT OR IGNORE INTO permissions (user_id, lock_id) VALUES (?, ?)", ('a1', 'lock1'))
         conn.commit()
     except Exception as e:
-        print(f"[init_db] Error during default data insertion: {e}")
+        print(f"[init_db] Default data error: {e}")
         conn.rollback()
     
     conn.close()
