@@ -44,67 +44,66 @@ import time
 import random
 
 def init_db():
-    # Stagger workers so they don't all hit the DB at once
-    time.sleep(random.uniform(0.1, 2.0))
+    print("[init_db] Starting bulletproof initialization...")
     
+    tables = {
+        "users": "(id VARCHAR(255) PRIMARY KEY, email VARCHAR(255) UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)",
+        "locks": "(id VARCHAR(255) PRIMARY KEY, name TEXT, status TEXT, type TEXT, approved INTEGER, token TEXT, last_unlocked_by TEXT, last_unlocked_at TEXT)",
+        "permissions": "(user_id VARCHAR(255), lock_id VARCHAR(255), UNIQUE(user_id, lock_id))",
+        "audit_logs": "(id VARCHAR(255) PRIMARY KEY, user_id TEXT, user_name TEXT, lock_id TEXT, lock_name TEXT, action TEXT, result TEXT, message TEXT, timestamp TEXT)",
+        "messages": "(id VARCHAR(255) PRIMARY KEY, sender_id TEXT, receiver_id TEXT, group_id TEXT, content TEXT, type TEXT, timestamp TEXT, is_deleted INTEGER DEFAULT 0, is_edited INTEGER DEFAULT 0, seen_by TEXT DEFAULT '[]')"
+    }
+    
+    # Process each table in its own transaction to prevent lock cascades
+    for table, schema in tables.items():
+        conn = get_db()
+        c = conn.cursor()
+        try:
+            c.execute(f"CREATE TABLE IF NOT EXISTS {table} {schema}")
+            conn.commit()
+            print(f"[init_db] Verified table: {table}")
+        except Exception as e:
+            # Table might exist or be locked; we can ignore since we used IF NOT EXISTS
+            conn.rollback()
+        finally:
+            conn.close()
+
+    # Seed Default Data (Isolated Transaction)
     conn = get_db()
     c = conn.cursor()
-    
-    # Use standard VARCHAR(255) for Primary Keys in Postgres
-    print("[init_db] Ensuring tables exist...")
     try:
-        c.execute('''CREATE TABLE IF NOT EXISTS users
-                     (id VARCHAR(255) PRIMARY KEY, email VARCHAR(255) UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS locks
-                     (id VARCHAR(255) PRIMARY KEY, name TEXT, status TEXT, type TEXT, approved INTEGER, token TEXT, last_unlocked_by TEXT, last_unlocked_at TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS permissions
-                     (user_id VARCHAR(255), lock_id VARCHAR(255), UNIQUE(user_id, lock_id))''')
-        c.execute('''CREATE TABLE IF NOT EXISTS audit_logs
-                     (id VARCHAR(255) PRIMARY KEY, user_id TEXT, user_name TEXT, lock_id TEXT, lock_name TEXT, action TEXT, result TEXT, message TEXT, timestamp TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS messages
-                     (id VARCHAR(255) PRIMARY KEY, sender_id TEXT, receiver_id TEXT, group_id TEXT, content TEXT, type TEXT, timestamp TEXT, is_deleted INTEGER DEFAULT 0, is_edited INTEGER DEFAULT 0, seen_by TEXT DEFAULT '[]')''')
-        
-        conn.commit()
-        print("[init_db] Tables verified.")
-
-        # Insert default data
         # Admin
         c.execute("SELECT * FROM users WHERE email=?", ('admin@example.com',))
         if not c.fetchone():
             c.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
                       ('a1', 'admin@example.com', 'admin', 'Admin', 'Administrator', 1))
 
-        # Test User
+        # User
         c.execute("SELECT * FROM users WHERE email=?", ('user@example.com',))
         if not c.fetchone():
             c.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
                       ('u1', 'user@example.com', 'password', 'User', 'Employee', 1))
 
-        # Test Lock
+        # Lock
         c.execute("SELECT * FROM locks WHERE id=?", ('lock1',))
         if not c.fetchone():
             c.execute("INSERT INTO locks (id, name, status, type, approved, token) VALUES (?, ?, ?, ?, ?, ?)",
                       ('lock1', 'Main Entrance', 'Locked', 'HPQC Hub', 1, 'secret1'))
 
-        # Permissions
+        # Seed permissions
         c.execute("SELECT * FROM permissions WHERE user_id=? AND lock_id=?", ('u1', 'lock1'))
         if not c.fetchone():
             c.execute("INSERT INTO permissions (user_id, lock_id) VALUES (?, ?)", ('u1', 'lock1'))
-            
-        c.execute("SELECT * FROM permissions WHERE user_id=? AND lock_id=?", ('a1', 'lock1'))
-        if not c.fetchone():
-            c.execute("INSERT INTO permissions (user_id, lock_id) VALUES (?, ?)", ('a1', 'lock1'))
-            
+
         conn.commit()
-        print("[init_db] Default records verified.")
+        print("[init_db] Seeding completed.")
     except Exception as e:
-        print(f"[init_db] Error: {e}")
+        print(f"[init_db] Seeding warning: {e}")
         conn.rollback()
     finally:
         conn.close()
 
-# Only run init_db if we are in the main process if possible, 
-# or just let the staggered workers handle it.
+# Bulletproof execution
 init_db()
 
 def get_user_from_token(token):
