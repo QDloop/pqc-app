@@ -40,62 +40,71 @@ SMTP_PASSWORD = "hmix iugy audi bcgg"
 
 from db import get_db
 
+import time
+import random
+
 def init_db():
+    # Stagger workers so they don't all hit the DB at once
+    time.sleep(random.uniform(0.1, 2.0))
+    
     conn = get_db()
     c = conn.cursor()
     
+    # Use standard VARCHAR(255) for Primary Keys in Postgres
     print("[init_db] Ensuring tables exist...")
-    # Core tables with all columns included from the start
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (id TEXT PRIMARY KEY, email TEXT UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS locks
-                 (id TEXT PRIMARY KEY, name TEXT, status TEXT, type TEXT, approved INTEGER, token TEXT, last_unlocked_by TEXT, last_unlocked_at TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS permissions
-                 (user_id TEXT, lock_id TEXT, UNIQUE(user_id, lock_id))''')
-    c.execute('''CREATE TABLE IF NOT EXISTS audit_logs
-                 (id TEXT PRIMARY KEY, user_id TEXT, user_name TEXT, lock_id TEXT, lock_name TEXT, action TEXT, result TEXT, message TEXT, timestamp TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS messages
-                 (id TEXT PRIMARY KEY, sender_id TEXT, receiver_id TEXT, group_id TEXT, content TEXT, type TEXT, timestamp TEXT, is_deleted INTEGER DEFAULT 0, is_edited INTEGER DEFAULT 0, seen_by TEXT DEFAULT '[]')''')
-    
-    conn.commit()
-
-    # Step 2: Insert default data using PostgreSQL %s syntax
     try:
-        # Get parameter style from db wrapper if possible, otherwise use %s for Postgres
-        param = "%s"
+        c.execute('''CREATE TABLE IF NOT EXISTS users
+                     (id VARCHAR(255) PRIMARY KEY, email VARCHAR(255) UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS locks
+                     (id VARCHAR(255) PRIMARY KEY, name TEXT, status TEXT, type TEXT, approved INTEGER, token TEXT, last_unlocked_by TEXT, last_unlocked_at TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS permissions
+                     (user_id VARCHAR(255), lock_id VARCHAR(255), UNIQUE(user_id, lock_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS audit_logs
+                     (id VARCHAR(255) PRIMARY KEY, user_id TEXT, user_name TEXT, lock_id TEXT, lock_name TEXT, action TEXT, result TEXT, message TEXT, timestamp TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS messages
+                     (id VARCHAR(255) PRIMARY KEY, sender_id TEXT, receiver_id TEXT, group_id TEXT, content TEXT, type TEXT, timestamp TEXT, is_deleted INTEGER DEFAULT 0, is_edited INTEGER DEFAULT 0, seen_by TEXT DEFAULT '[]')''')
         
-        c.execute(f"SELECT * FROM users WHERE email='admin@example.com'")
+        conn.commit()
+        print("[init_db] Tables verified.")
+
+        # Insert default data
+        # Admin
+        c.execute("SELECT * FROM users WHERE email=?", ('admin@example.com',))
         if not c.fetchone():
-            c.execute(f"INSERT INTO users (id, email, password, role, name, approved) VALUES ({param}, {param}, {param}, {param}, {param}, {param})",
+            c.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
                       ('a1', 'admin@example.com', 'admin', 'Admin', 'Administrator', 1))
 
-        c.execute(f"SELECT * FROM users WHERE email='user@example.com'")
+        # Test User
+        c.execute("SELECT * FROM users WHERE email=?", ('user@example.com',))
         if not c.fetchone():
-            c.execute(f"INSERT INTO users (id, email, password, role, name, approved) VALUES ({param}, {param}, {param}, {param}, {param}, {param})",
+            c.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
                       ('u1', 'user@example.com', 'password', 'User', 'Employee', 1))
 
-        c.execute(f"SELECT * FROM locks WHERE id='lock1'")
+        # Test Lock
+        c.execute("SELECT * FROM locks WHERE id=?", ('lock1',))
         if not c.fetchone():
-            c.execute(f"INSERT INTO locks (id, name, status, type, approved, token) VALUES ({param}, {param}, {param}, {param}, {param}, {param})",
+            c.execute("INSERT INTO locks (id, name, status, type, approved, token) VALUES (?, ?, ?, ?, ?, ?)",
                       ('lock1', 'Main Entrance', 'Locked', 'HPQC Hub', 1, 'secret1'))
 
-        # Permission mappings
-        c.execute(f"SELECT * FROM permissions WHERE user_id='u1' AND lock_id='lock1'")
+        # Permissions
+        c.execute("SELECT * FROM permissions WHERE user_id=? AND lock_id=?", ('u1', 'lock1'))
         if not c.fetchone():
-            c.execute(f"INSERT INTO permissions (user_id, lock_id) VALUES ({param}, {param})", ('u1', 'lock1'))
+            c.execute("INSERT INTO permissions (user_id, lock_id) VALUES (?, ?)", ('u1', 'lock1'))
             
-        c.execute(f"SELECT * FROM permissions WHERE user_id='a1' AND lock_id='lock1'")
+        c.execute("SELECT * FROM permissions WHERE user_id=? AND lock_id=?", ('a1', 'lock1'))
         if not c.fetchone():
-            c.execute(f"INSERT INTO permissions (user_id, lock_id) VALUES ({param}, {param})", ('a1', 'lock1'))
+            c.execute("INSERT INTO permissions (user_id, lock_id) VALUES (?, ?)", ('a1', 'lock1'))
             
         conn.commit()
-        print("[init_db] Database initialized successfully.")
+        print("[init_db] Default records verified.")
     except Exception as e:
-        print(f"[init_db] Default data error: {e}")
+        print(f"[init_db] Error: {e}")
         conn.rollback()
-    
-    conn.close()
+    finally:
+        conn.close()
 
+# Only run init_db if we are in the main process if possible, 
+# or just let the staggered workers handle it.
 init_db()
 
 def get_user_from_token(token):
