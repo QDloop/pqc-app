@@ -58,34 +58,39 @@ def init_db():
     try:
         c.execute("ALTER TABLE users ADD COLUMN last_active TEXT")
     except Exception:
-        pass  # Column already exists
+        conn.rollback()  # Crucial for PostgreSQL: rollback aborted transaction
     try:
         c.execute("ALTER TABLE users ADD COLUMN profile_pic TEXT")
     except Exception:
-        pass  # Column already exists
+        conn.rollback()  # Crucial for PostgreSQL: rollback aborted transaction
 
     # Create default admin if missing
-    c.execute("SELECT * FROM users WHERE email='admin@example.com'")
-    if not c.fetchone():
-        c.execute("INSERT INTO users (id, email, password, role, name) VALUES (?, ?, ?, ?, ?)",
-                  ('a1', 'admin@example.com', 'admin', 'Admin', 'Administrator'))
+    try:
+        c.execute("SELECT * FROM users WHERE email='admin@example.com'")
+        if not c.fetchone():
+            c.execute("INSERT INTO users (id, email, password, role, name) VALUES (?, ?, ?, ?, ?)",
+                      ('a1', 'admin@example.com', 'admin', 'Admin', 'Administrator'))
 
-    # Create default user if missing
-    c.execute("SELECT * FROM users WHERE email='user@example.com'")
-    if not c.fetchone():
-        c.execute("INSERT INTO users (id, email, password, role, name) VALUES (?, ?, ?, ?, ?)",
-                  ('u1', 'user@example.com', 'password', 'User', 'Employee'))
+        # Create default user if missing
+        c.execute("SELECT * FROM users WHERE email='user@example.com'")
+        if not c.fetchone():
+            c.execute("INSERT INTO users (id, email, password, role, name) VALUES (?, ?, ?, ?, ?)",
+                      ('u1', 'user@example.com', 'password', 'User', 'Employee'))
 
-    # Create default lock if missing
-    c.execute("SELECT * FROM locks WHERE id='lock1'")
-    if not c.fetchone():
-        c.execute("INSERT INTO locks (id, name, status, type, approved, token) VALUES (?, ?, ?, ?, ?, ?)",
-                  ('lock1', 'Main Entrance', 'Locked', 'Quantum Hub', 1, 'secret1'))
+        # Create default lock if missing
+        c.execute("SELECT * FROM locks WHERE id='lock1'")
+        if not c.fetchone():
+            c.execute("INSERT INTO locks (id, name, status, type, approved, token) VALUES (?, ?, ?, ?, ?, ?)",
+                      ('lock1', 'Main Entrance', 'Locked', 'HPQC Hub', 1, 'secret1'))
 
-    # Assign default user and admin permissions to lock1
-    c.execute("INSERT OR IGNORE INTO permissions (user_id, lock_id) VALUES (?, ?)", ('u1', 'lock1'))
-    c.execute("INSERT OR IGNORE INTO permissions (user_id, lock_id) VALUES (?, ?)", ('a1', 'lock1'))
-    conn.commit()
+        # Assign default user and admin permissions to lock1
+        c.execute("INSERT OR IGNORE INTO permissions (user_id, lock_id) VALUES (?, ?)", ('u1', 'lock1'))
+        c.execute("INSERT OR IGNORE INTO permissions (user_id, lock_id) VALUES (?, ?)", ('a1', 'lock1'))
+        conn.commit()
+    except Exception as e:
+        print(f"[init_db] Error during default data insertion: {e}")
+        conn.rollback()
+    
     conn.close()
 
 init_db()
@@ -168,19 +173,19 @@ def request_signup():
     # Actually send the email using SMTP
     try:
         msg = EmailMessage()
-        msg['Subject'] = 'QuantumLock Verification Code'
+        msg['Subject'] = 'HPQC Verification Code'
         msg['From'] = SMTP_EMAIL
         msg['To'] = email
         msg.set_content(f"""\
 Hello,
 
-Your QuantumLock verification code is: {otp}
+Your HPQC verification code is: {otp}
 
 Enter this 6-digit code on your device to create your user account.
 This code is valid securely via our PQC interface.
 
 Thank you,
-QuantumLock Security System
+HPQC Security System
 """)
 
         if "your.email" in SMTP_EMAIL:
@@ -265,7 +270,7 @@ def register_lock():
     device_id = data.get('device_id')
     name = data.get('name', f"Lock {device_id}")
     token = data.get('token')
-    lock_type = data.get('type', 'Quantum Hub')
+    lock_type = data.get('type', 'HPQC Hub')
     
     conn = get_db()
     existing = conn.execute("SELECT * FROM locks WHERE id=?", (device_id,)).fetchone()

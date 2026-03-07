@@ -1,6 +1,6 @@
-# Quantum-Inspired Secure Lock & Access Control System
+# HPQC - Hybrid Post-Quantum Secure Access Control System
 
-This project contains a native Android application (React Native) and a Python Flask backend implementing Post-Quantum Cryptography (Mocked for demo).
+This project contains the HPQC native Android application (React Native) and a Python Flask backend implementing Post-Quantum Cryptography.
 
 ## Prerequisites
 
