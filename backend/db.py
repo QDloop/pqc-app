@@ -76,6 +76,9 @@ class PostgresConnectionWrapper:
     def commit(self):
         self.conn.commit()
 
+    def rollback(self):
+        self.conn.rollback()
+
     def close(self):
         # Return connection back to the pool instead of destroying it
         if self._pool:
