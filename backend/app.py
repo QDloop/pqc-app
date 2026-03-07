@@ -353,18 +353,20 @@ def get_locks():
         return jsonify({"error": "Unauthorized"}), 401
     
     conn = get_db()
-    if user['role'] == 'Admin':
-        locks = conn.execute('SELECT * FROM "locks"').fetchall()
-    else:
-        # Check permissions
-        locks = conn.execute('''
-            SELECT l.* FROM "locks" l 
-            JOIN "permissions" p ON l.id = p.lock_id 
-            WHERE p.user_id=? AND l.approved=1
-        ''', (user['id'],)).fetchall()
-    
-    conn.close()
-    return jsonify([dict(l) for l in locks])
+    try:
+        if user['role'] == 'Admin':
+            locks = conn.execute('SELECT * FROM "locks"').fetchall()
+        else:
+            # Check permissions
+            locks = conn.execute('''
+                SELECT l.* FROM "locks" l 
+                JOIN "permissions" p ON l.id = p.lock_id 
+                WHERE p.user_id=? AND l.approved=1
+            ''', (user['id'],)).fetchall()
+        
+        return jsonify([dict(l) for l in locks])
+    finally:
+        conn.close()
 
 @app.route('/users', methods=['GET'])
 def get_users():
@@ -619,28 +621,29 @@ def get_messages():
     
     receiver_id = request.args.get('receiver_id', 'group')
     conn = get_db()
-    
-    if receiver_id == 'group':
-        msgs = conn.execute('''
-            SELECT m.*, u.name as sender_name 
-            FROM "messages" m 
-            JOIN "users" u ON m.sender_id = u.id 
-            WHERE m.receiver_id = 'group' 
-            ORDER BY m.timestamp ASC
-        ''').fetchall()
-    else:
-        msgs = conn.execute('''
-            SELECT m.*, u.name as sender_name 
-            FROM "messages" m 
-            JOIN "users" u ON m.sender_id = u.id 
-            WHERE (m.sender_id = ? AND m.receiver_id = ?) 
-               OR (m.sender_id = ? AND m.receiver_id = ?)
-            ORDER BY m.timestamp ASC
-        ''', (user['id'], receiver_id, receiver_id, user['id'])).fetchall()
-        
-    # Get total expected viewers for group chats (excluding sender)
-    total_users_count = conn.execute('SELECT COUNT(*) FROM "users" WHERE approved=1').fetchone()[0]
-    conn.close()
+    try:
+        if receiver_id == 'group':
+            msgs = conn.execute('''
+                SELECT m.*, u.name as sender_name 
+                FROM "messages" m 
+                JOIN "users" u ON m.sender_id = u.id 
+                WHERE m.receiver_id = 'group' 
+                ORDER BY m.timestamp ASC
+            ''').fetchall()
+        else:
+            msgs = conn.execute('''
+                SELECT m.*, u.name as sender_name 
+                FROM "messages" m 
+                JOIN "users" u ON m.sender_id = u.id 
+                WHERE (m.sender_id = ? AND m.receiver_id = ?) 
+                   OR (m.sender_id = ? AND m.receiver_id = ?)
+                ORDER BY m.timestamp ASC
+            ''', (user['id'], receiver_id, receiver_id, user['id'])).fetchall()
+            
+        # Get total expected viewers for group chats (excluding sender)
+        total_users_count = conn.execute('SELECT COUNT(*) FROM "users" WHERE approved=1').fetchone()[0]
+    finally:
+        conn.close()
     
     import json
     formatted_msgs = []
@@ -813,21 +816,23 @@ def chat_unread():
     if not user: return jsonify({"unread": 0}), 401
     
     conn = get_db()
-    # Fetch all messages where user is not sender, but could be receiver (group or direct)
-    msgs = conn.execute("SELECT id, seen_by, receiver_id FROM messages WHERE sender_id != ? AND (receiver_id = 'group' OR receiver_id = ?)", (user['id'], user['id'])).fetchall()
-    conn.close()
-    
-    count = 0
-    import json
-    for m in msgs:
-        try:
-            seen_list = json.loads(m['seen_by'] or '[]')
-            if user['id'] not in seen_list:
-                count += 1 # type: ignore
-        except:
-            pass
-            
-    return jsonify({"unread": count})
+    try:
+        # Fetch all messages where user is not sender, but could be receiver (group or direct)
+        msgs = conn.execute('SELECT id, seen_by, receiver_id FROM "messages" WHERE sender_id != ? AND (receiver_id = \'group\' OR receiver_id = ?)', (user['id'], user['id'])).fetchall()
+        
+        count = 0
+        import json
+        for m in msgs:
+            try:
+                seen_list = json.loads(m['seen_by'] or '[]')
+                if user['id'] not in seen_list:
+                    count += 1 # type: ignore
+            except:
+                pass
+                
+        return jsonify({"unread": count})
+    finally:
+        conn.close()
 
 @app.route('/ping', methods=['POST'])
 def ping():
