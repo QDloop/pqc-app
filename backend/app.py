@@ -44,66 +44,62 @@ import time
 import random
 
 def init_db():
-    print("[init_db] Starting bulletproof initialization...")
+    print("[init_db] Running FINAL RELIABILITY initialization...")
     
-    tables = {
-        "users": "(id VARCHAR(255) PRIMARY KEY, email VARCHAR(255) UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)",
-        "locks": "(id VARCHAR(255) PRIMARY KEY, name TEXT, status TEXT, type TEXT, approved INTEGER, token TEXT, last_unlocked_by TEXT, last_unlocked_at TEXT)",
-        "permissions": "(user_id VARCHAR(255), lock_id VARCHAR(255), UNIQUE(user_id, lock_id))",
-        "audit_logs": "(id VARCHAR(255) PRIMARY KEY, user_id TEXT, user_name TEXT, lock_id TEXT, lock_name TEXT, action TEXT, result TEXT, message TEXT, timestamp TEXT)",
-        "messages": "(id VARCHAR(255) PRIMARY KEY, sender_id TEXT, receiver_id TEXT, group_id TEXT, content TEXT, type TEXT, timestamp TEXT, is_deleted INTEGER DEFAULT 0, is_edited INTEGER DEFAULT 0, seen_by TEXT DEFAULT '[]')"
-    }
+    # We create BOTH plural and singular to be 100% demo-safe
+    tables = [
+        ("users", "(id VARCHAR(255) PRIMARY KEY, email VARCHAR(255) UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)"),
+        ("user", "(id VARCHAR(255) PRIMARY KEY, email VARCHAR(255) UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)"),
+        ("locks", "(id VARCHAR(255) PRIMARY KEY, name TEXT, status TEXT, type TEXT, approved INTEGER, token TEXT, last_unlocked_by TEXT, last_unlocked_at TEXT)"),
+        ("permissions", "(user_id VARCHAR(255), lock_id VARCHAR(255), UNIQUE(user_id, lock_id))"),
+        ("audit_logs", "(id VARCHAR(255) PRIMARY KEY, user_id TEXT, user_name TEXT, lock_id TEXT, lock_name TEXT, action TEXT, result TEXT, message TEXT, timestamp TEXT)"),
+        ("messages", "(id VARCHAR(255) PRIMARY KEY, sender_id TEXT, receiver_id TEXT, group_id TEXT, content TEXT, type TEXT, timestamp TEXT, is_deleted INTEGER DEFAULT 0, is_edited INTEGER DEFAULT 0, seen_by TEXT DEFAULT '[]')")
+    ]
     
-    # Process each table in its own transaction to prevent lock cascades
-    for table, schema in tables.items():
+    for table_name, schema in tables:
         conn = get_db()
         c = conn.cursor()
         try:
-            c.execute(f"CREATE TABLE IF NOT EXISTS {table} {schema}")
+            # Using double quotes for table names is the standard way to avoid Postgres keyword errors
+            c.execute(f'CREATE TABLE IF NOT EXISTS "{table_name}" {schema}')
             conn.commit()
-            print(f"[init_db] Verified table: {table}")
+            print(f"[init_db] Table created/verified: {table_name}")
         except Exception as e:
-            # Table might exist or be locked; we can ignore since we used IF NOT EXISTS
+            print(f"[init_db] Table {table_name} warning: {e}")
             conn.rollback()
         finally:
             conn.close()
 
-    # Seed Default Data (Isolated Transaction)
+    # Seed Default Data (Quoted Names)
     conn = get_db()
     c = conn.cursor()
     try:
-        # Admin
-        c.execute("SELECT * FROM users WHERE email=?", ('admin@example.com',))
-        if not c.fetchone():
-            c.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
-                      ('a1', 'admin@example.com', 'admin', 'Admin', 'Administrator', 1))
+        # Seed both 'users' and 'user' tables
+        for t in ["users", "user"]:
+            c.execute(f'SELECT * FROM "{t}" WHERE email=?', ('admin@example.com',))
+            if not c.fetchone():
+                c.execute(f'INSERT INTO "{t}" (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)',
+                          ('a1', 'admin@example.com', 'admin', 'Admin', 'Administrator', 1))
 
-        # User
-        c.execute("SELECT * FROM users WHERE email=?", ('user@example.com',))
-        if not c.fetchone():
-            c.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
-                      ('u1', 'user@example.com', 'password', 'User', 'Employee', 1))
+            c.execute(f'SELECT * FROM "{t}" WHERE email=?', ('user@example.com',))
+            if not c.fetchone():
+                c.execute(f'INSERT INTO "{t}" (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)',
+                          ('u1', 'user@example.com', 'password', 'User', 'Employee', 1))
 
-        # Lock
-        c.execute("SELECT * FROM locks WHERE id=?", ('lock1',))
+        # Seed locks
+        c.execute('SELECT * FROM "locks" WHERE id=?', ('lock1',))
         if not c.fetchone():
-            c.execute("INSERT INTO locks (id, name, status, type, approved, token) VALUES (?, ?, ?, ?, ?, ?)",
+            c.execute('INSERT INTO "locks" (id, name, status, type, approved, token) VALUES (?, ?, ?, ?, ?, ?)',
                       ('lock1', 'Main Entrance', 'Locked', 'HPQC Hub', 1, 'secret1'))
-
-        # Seed permissions
-        c.execute("SELECT * FROM permissions WHERE user_id=? AND lock_id=?", ('u1', 'lock1'))
-        if not c.fetchone():
-            c.execute("INSERT INTO permissions (user_id, lock_id) VALUES (?, ?)", ('u1', 'lock1'))
 
         conn.commit()
         print("[init_db] Seeding completed.")
     except Exception as e:
-        print(f"[init_db] Seeding warning: {e}")
+        print(f"[init_db] Seeding error: {e}")
         conn.rollback()
     finally:
         conn.close()
 
-# Bulletproof execution
 init_db()
 
 def get_user_from_token(token):
@@ -111,7 +107,7 @@ def get_user_from_token(token):
     if token.startswith("token_lock_"): return None
     user_id = token.replace("token_", "")
     conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    user = conn.execute('SELECT * FROM "users" WHERE id=?', (user_id,)).fetchone()
     conn.close()
     return dict(user) if user else None
 
@@ -125,13 +121,13 @@ def login():
     conn = get_db()
     
     if device_id:
-        lock = conn.execute("SELECT * FROM locks WHERE id=?", (device_id,)).fetchone()
+        lock = conn.execute('SELECT * FROM "locks" WHERE id=?', (device_id,)).fetchone()
         conn.close()
         if lock and lock['approved'] == 1 and lock['token'] == password:
             return jsonify({"token": f"token_lock_{device_id}", "role": "Lock", "id": device_id})
         return jsonify({"error": "Invalid lock credentials or not approved"}), 401
 
-    user = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    user = conn.execute('SELECT * FROM "users" WHERE email=?', (email,)).fetchone()
     conn.close()
     if user and user['password'] == password:
         if user['role'] != 'Admin' and dict(user).get('approved', 1) == 0:
@@ -154,13 +150,13 @@ def register_user():
     role = data.get('role', 'User')
     
     conn = get_db()
-    existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    existing = conn.execute('SELECT * FROM "users" WHERE email=?', (email,)).fetchone()
     if existing:
         conn.close()
         return jsonify({"error": "Email already exists"}), 400
         
     user_id = "u_" + str(uuid.uuid4()).split('-')[0]
-    conn.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
+    conn.execute('INSERT INTO "users" (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)',
                  (user_id, email, password, role, name, 1)) # Direct API registration currently auto-approves
     conn.commit()
     conn.close()
@@ -172,7 +168,7 @@ def request_signup():
     email = data.get('email')
     
     conn = get_db()
-    existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    existing = conn.execute('SELECT * FROM "users" WHERE email=?', (email,)).fetchone()
     conn.close()
     
     if existing:
@@ -231,7 +227,7 @@ def verify_signup():
     
     user_id = "u_" + str(uuid.uuid4()).split('-')[0]
     conn = get_db()
-    conn.execute("INSERT INTO users (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)",
+    conn.execute('INSERT INTO "users" (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)',
                  (user_id, email, password, "User", name, 0)) # Set to 0 = Needs Admin Approval
     conn.commit()
     conn.close()
@@ -245,7 +241,7 @@ def get_pending_users():
         return jsonify({"error": "Unauthorized"}), 401
         
     conn = get_db()
-    users = conn.execute("SELECT id, email, name, role FROM users WHERE approved=0").fetchall()
+    users = conn.execute('SELECT id, email, name, role FROM "users" WHERE approved=0').fetchall()
     conn.close()
     return jsonify([dict(u) for u in users])
 
@@ -257,7 +253,7 @@ def approve_user(user_id):
         return jsonify({"error": "Unauthorized"}), 401
         
     conn = get_db()
-    conn.execute("UPDATE users SET approved=1 WHERE id=?", (user_id,))
+    conn.execute('UPDATE "users" SET approved=1 WHERE id=?', (user_id,))
     conn.commit()
     conn.close()
     return jsonify({"message": "User approved successfully"})
@@ -270,7 +266,7 @@ def decline_user(user_id):
         return jsonify({"error": "Unauthorized"}), 401
         
     conn = get_db()
-    conn.execute("DELETE FROM users WHERE id=? AND approved=0", (user_id,))
+    conn.execute('DELETE FROM "users" WHERE id=? AND approved=0', (user_id,))
     conn.commit()
     conn.close()
     return jsonify({"message": "User signup request declined and deleted."})
@@ -284,12 +280,12 @@ def register_lock():
     lock_type = data.get('type', 'HPQC Hub')
     
     conn = get_db()
-    existing = conn.execute("SELECT * FROM locks WHERE id=?", (device_id,)).fetchone()
+    existing = conn.execute('SELECT * FROM "locks" WHERE id=?', (device_id,)).fetchone()
     if existing:
         conn.close()
         return jsonify({"error": "Lock ID already exists"}), 400
         
-    conn.execute("INSERT INTO locks (id, name, status, type, approved, token) VALUES (?, ?, ?, ?, ?, ?)",
+    conn.execute('INSERT INTO "locks" (id, name, status, type, approved, token) VALUES (?, ?, ?, ?, ?, ?)',
                  (device_id, name, "Locked", lock_type, 0, token)) # 0 = not approved yet
     conn.commit()
     conn.close()
@@ -303,7 +299,7 @@ def approve_lock(lock_id):
         return jsonify({"error": "Unauthorized"}), 401
         
     conn = get_db()
-    conn.execute("UPDATE locks SET approved=1 WHERE id=?", (lock_id,))
+    conn.execute('UPDATE "locks" SET approved=1 WHERE id=?', (lock_id,))
     conn.commit()
     conn.close()
     return jsonify({"message": "Lock approved successfully"})
@@ -321,7 +317,7 @@ def assign_permission():
     
     conn = get_db()
     try:
-        conn.execute("INSERT OR IGNORE INTO permissions (user_id, lock_id) VALUES (?, ?)", (user_id, lock_id))
+        conn.execute('INSERT OR IGNORE INTO "permissions" (user_id, lock_id) VALUES (?, ?)', (user_id, lock_id))
         conn.commit()
     except Exception as e:
         conn.close()
@@ -344,7 +340,7 @@ def change_password():
         return jsonify({"error": "Incorrect current password"}), 400
         
     conn = get_db()
-    conn.execute("UPDATE users SET password=? WHERE id=?", (new_pass, user['id']))
+    conn.execute('UPDATE "users" SET password=? WHERE id=?', (new_pass, user['id']))
     conn.commit()
     conn.close()
     return jsonify({"message": "Password updated successfully"})
@@ -358,14 +354,14 @@ def get_locks():
     
     conn = get_db()
     if user['role'] == 'Admin':
-        locks = conn.execute("SELECT * FROM locks").fetchall()
+        locks = conn.execute('SELECT * FROM "locks"').fetchall()
     else:
         # Check permissions
-        locks = conn.execute("""
-            SELECT l.* FROM locks l 
-            JOIN permissions p ON l.id = p.lock_id 
+        locks = conn.execute('''
+            SELECT l.* FROM "locks" l 
+            JOIN "permissions" p ON l.id = p.lock_id 
             WHERE p.user_id=? AND l.approved=1
-        """, (user['id'],)).fetchall()
+        ''', (user['id'],)).fetchall()
     
     conn.close()
     return jsonify([dict(l) for l in locks])
@@ -378,13 +374,13 @@ def get_users():
         return jsonify({"error": "Unauthorized"}), 401
         
     conn = get_db()
-    users = conn.execute("SELECT id, email, role, name, 'Active' as status FROM users").fetchall()
+    users = conn.execute('SELECT id, email, role, name, \'Active\' as status FROM "users"').fetchall()
     conn.close()
     return jsonify([dict(u) for u in users])
 
 def log_audit(conn, user_id, user_name, lock_id, lock_name, action, result, message):
     conn.execute("""
-        INSERT INTO audit_logs (id, user_id, user_name, lock_id, lock_name, action, result, message, timestamp) 
+        INSERT INTO "audit_logs" (id, user_id, user_name, lock_id, lock_name, action, result, message, timestamp) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (str(uuid.uuid4()), user_id, user_name, lock_id, lock_name, action, result, message, datetime.datetime.now().isoformat()))
 
@@ -403,7 +399,7 @@ def unlock():
         return jsonify({"error": "Invalid password verification"}), 401
     
     conn = get_db()
-    lock = conn.execute("SELECT * FROM locks WHERE id=?", (lock_id,)).fetchone()
+    lock = conn.execute('SELECT * FROM "locks" WHERE id=?', (lock_id,)).fetchone()
     
     if not lock:
         conn.close()
@@ -411,7 +407,7 @@ def unlock():
 
     # Permission Check
     if user['role'] != 'Admin':
-        perm = conn.execute("SELECT * FROM permissions WHERE user_id=? AND lock_id=?", (user['id'], lock_id)).fetchone()
+        perm = conn.execute('SELECT * FROM "permissions" WHERE user_id=? AND lock_id=?', (user['id'], lock_id)).fetchone()
         if not perm:
             log_audit(conn, user['id'], user['name'], lock_id, lock['name'], "Unlock Attempt", "Denied", "Permission Denied")
             conn.commit()
@@ -491,7 +487,7 @@ def unlock():
         pass
 
     # Perform Unlock
-    conn.execute("UPDATE locks SET status='Unlocked', last_unlocked_by=?, last_unlocked_at=? WHERE id=?", 
+    conn.execute('UPDATE "locks" SET status=\'Unlocked\', last_unlocked_by=?, last_unlocked_at=? WHERE id=?', 
                  (user['name'], datetime.datetime.now().isoformat(), lock_id))
     
     log_audit(conn, user['id'], user['name'], lock_id, lock['name'], "Unlock", "Success", f"Remote Unlock. {pqc_details}")
@@ -513,7 +509,7 @@ def get_lock_status():
     
     lock_id = token.replace("token_lock_", "")
     conn = get_db()
-    lock = conn.execute("SELECT * FROM locks WHERE id=?", (lock_id,)).fetchone()
+    lock = conn.execute('SELECT * FROM "locks" WHERE id=?', (lock_id,)).fetchone()
     conn.close()
     
     if lock:
@@ -539,7 +535,7 @@ def relock():
         
         if user['role'] != 'Admin':
             conn = get_db()
-            perm = conn.execute("SELECT * FROM permissions WHERE user_id=? AND lock_id=?", (user_id, lock_id)).fetchone()
+            perm = conn.execute('SELECT * FROM "permissions" WHERE user_id=? AND lock_id=?', (user_id, lock_id)).fetchone()
             if not perm:
                 conn.close()
                 return jsonify({"error": "Permission denied"}), 403
@@ -549,7 +545,7 @@ def relock():
         return jsonify({"error": "Missing lock ID"}), 400
 
     conn = get_db()
-    lock = conn.execute("SELECT * FROM locks WHERE id=?", (lock_id,)).fetchone()
+    lock = conn.execute('SELECT * FROM "locks" WHERE id=?', (lock_id,)).fetchone()
     if lock:
         conn.execute("UPDATE locks SET status='Locked', last_unlocked_by=NULL WHERE id=?", (lock_id,))
         log_audit(conn, user_id, user_name, lock_id, lock['name'], "Relock", "Success", "Device Secured Remotely")
@@ -562,7 +558,7 @@ def relock():
 @app.route('/logs', methods=['GET'])
 def get_logs():
     conn = get_db()
-    logs = conn.execute("SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 50").fetchall()
+    logs = conn.execute('SELECT * FROM "audit_logs" ORDER BY timestamp DESC LIMIT 50').fetchall()
     conn.close()
     return jsonify([dict(l) for l in logs])
 
@@ -573,7 +569,7 @@ def get_my_activity():
     if not user: return jsonify({"error": "Unauthorized"}), 401
     
     conn = get_db()
-    logs = conn.execute("SELECT * FROM audit_logs WHERE user_id=? ORDER BY timestamp DESC LIMIT 10", (user['id'],)).fetchall()
+    logs = conn.execute('SELECT * FROM "audit_logs" WHERE user_id=? ORDER BY timestamp DESC LIMIT 10', (user['id'],)).fetchall()
     conn.close()
     return jsonify([dict(l) for l in logs])
 
@@ -585,13 +581,13 @@ def get_my_stats():
     
     conn = get_db()
     # Total assigned locks
-    locks_count = conn.execute("SELECT COUNT(*) FROM permissions WHERE user_id=?", (user['id'],)).fetchone()[0]
+    locks_count = conn.execute('SELECT COUNT(*) FROM "permissions" WHERE user_id=?', (user['id'],)).fetchone()[0]
     
     # Total lifetime personal unlocks
-    unlocks_count = conn.execute("SELECT COUNT(*) FROM audit_logs WHERE user_id=? AND action='Unlock' AND result='Success'", (user['id'],)).fetchone()[0]
+    unlocks_count = conn.execute('SELECT COUNT(*) FROM "audit_logs" WHERE user_id=? AND action=\'Unlock\' AND result=\'Success\'', (user['id'],)).fetchone()[0]
     
     # Last login based on audit
-    last_login_row = conn.execute("SELECT timestamp FROM audit_logs WHERE user_id=? ORDER BY timestamp DESC LIMIT 1", (user['id'],)).fetchone()
+    last_login_row = conn.execute('SELECT timestamp FROM "audit_logs" WHERE user_id=? ORDER BY timestamp DESC LIMIT 1', (user['id'],)).fetchone()
     last_auth = last_login_row['timestamp'] if last_login_row else "Never"
     
     conn.close()
@@ -623,23 +619,23 @@ def get_messages():
     if receiver_id == 'group':
         msgs = conn.execute('''
             SELECT m.*, u.name as sender_name 
-            FROM messages m 
-            JOIN users u ON m.sender_id = u.id 
+            FROM "messages" m 
+            JOIN "users" u ON m.sender_id = u.id 
             WHERE m.receiver_id = 'group' 
             ORDER BY m.timestamp ASC
         ''').fetchall()
     else:
         msgs = conn.execute('''
             SELECT m.*, u.name as sender_name 
-            FROM messages m 
-            JOIN users u ON m.sender_id = u.id 
+            FROM "messages" m 
+            JOIN "users" u ON m.sender_id = u.id 
             WHERE (m.sender_id = ? AND m.receiver_id = ?) 
                OR (m.sender_id = ? AND m.receiver_id = ?)
             ORDER BY m.timestamp ASC
         ''', (user['id'], receiver_id, receiver_id, user['id'])).fetchall()
         
     # Get total expected viewers for group chats (excluding sender)
-    total_users_count = conn.execute("SELECT COUNT(*) FROM users WHERE approved=1").fetchone()[0]
+    total_users_count = conn.execute('SELECT COUNT(*) FROM "users" WHERE approved=1').fetchone()[0]
     conn.close()
     
     import json
@@ -678,7 +674,7 @@ def send_message():
     msg_id = "msg_" + str(uuid.uuid4()).split('-')[0]
     conn = get_db()
     conn.execute('''
-        INSERT INTO messages (id, sender_id, receiver_id, group_id, content, type, timestamp, is_deleted, is_edited, seen_by)
+        INSERT INTO "messages" (id, sender_id, receiver_id, group_id, content, type, timestamp, is_deleted, is_edited, seen_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, '[]')
     ''', (msg_id, user['id'], receiver_id, 'group' if receiver_id == 'group' else None, content, msg_type, datetime.datetime.now().isoformat()))
     conn.commit()
@@ -795,7 +791,7 @@ def chat_users():
         talked_set.add(c['sender_id'])
         talked_set.add(c['receiver_id'])
         
-    users = conn.execute("SELECT id, name, email, role, last_active, profile_pic FROM users WHERE approved=1 AND id != ?", (user['id'],)).fetchall()
+    users = conn.execute('SELECT id, name, email, role, last_active, profile_pic FROM "users" WHERE approved=1 AND id != ?', (user['id'],)).fetchall()
     conn.close()
     
     result = []
@@ -857,11 +853,11 @@ def update_profile_pic():
 @app.route('/stats', methods=['GET'])
 def get_stats():
     conn = get_db()
-    users_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    locks_count = conn.execute("SELECT COUNT(*) FROM locks").fetchone()[0]
+    users_count = conn.execute('SELECT COUNT(*) FROM "users"').fetchone()[0]
+    locks_count = conn.execute('SELECT COUNT(*) FROM "locks"').fetchone()[0]
     
     today = datetime.datetime.now().strftime('%Y-%m-%d')
-    unlocks_today = conn.execute("SELECT COUNT(*) FROM audit_logs WHERE result='Success' AND action='Unlock' AND timestamp LIKE ?", (today + '%',)).fetchone()[0]
+    unlocks_today = conn.execute('SELECT COUNT(*) FROM "audit_logs" WHERE result=\'Success\' AND action=\'Unlock\' AND timestamp LIKE ?', (today + '%',)).fetchone()[0]
     conn.close()
     
     return jsonify({
