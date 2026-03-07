@@ -547,7 +547,7 @@ def relock():
     conn = get_db()
     lock = conn.execute('SELECT * FROM "locks" WHERE id=?', (lock_id,)).fetchone()
     if lock:
-        conn.execute("UPDATE locks SET status='Locked', last_unlocked_by=NULL WHERE id=?", (lock_id,))
+        conn.execute('UPDATE "locks" SET status=\'Locked\', last_unlocked_by=NULL WHERE id=?', (lock_id,))
         log_audit(conn, user_id, user_name, lock_id, lock['name'], "Relock", "Success", "Device Secured Remotely")
         conn.commit()
         conn.close()
@@ -558,9 +558,11 @@ def relock():
 @app.route('/logs', methods=['GET'])
 def get_logs():
     conn = get_db()
-    logs = conn.execute('SELECT * FROM "audit_logs" ORDER BY timestamp DESC LIMIT 50').fetchall()
-    conn.close()
-    return jsonify([dict(l) for l in logs])
+    try:
+        logs = conn.execute('SELECT * FROM "audit_logs" ORDER BY timestamp DESC LIMIT 50').fetchall()
+        return jsonify([dict(l) for l in logs])
+    finally:
+        conn.close()
 
 @app.route('/my-activity', methods=['GET'])
 def get_my_activity():
@@ -569,9 +571,11 @@ def get_my_activity():
     if not user: return jsonify({"error": "Unauthorized"}), 401
     
     conn = get_db()
-    logs = conn.execute('SELECT * FROM "audit_logs" WHERE user_id=? ORDER BY timestamp DESC LIMIT 10', (user['id'],)).fetchall()
-    conn.close()
-    return jsonify([dict(l) for l in logs])
+    try:
+        logs = conn.execute('SELECT * FROM "audit_logs" WHERE user_id=? ORDER BY timestamp DESC LIMIT 10', (user['id'],)).fetchall()
+        return jsonify([dict(l) for l in logs])
+    finally:
+        conn.close()
 
 @app.route('/my-stats', methods=['GET'])
 def get_my_stats():
@@ -691,7 +695,7 @@ def edit_message(msg_id):
     new_content = data.get('content')
     
     conn = get_db()
-    msg = conn.execute("SELECT * FROM messages WHERE id=?", (msg_id,)).fetchone()
+    msg = conn.execute('SELECT * FROM "messages" WHERE id=?', (msg_id,)).fetchone()
     if not msg:
         conn.close()
         return jsonify({"error": "Message not found"}), 404
@@ -706,7 +710,7 @@ def edit_message(msg_id):
         conn.close()
         return jsonify({"error": "Edit window (10 mins) has expired"}), 400
         
-    conn.execute("UPDATE messages SET content=?, is_edited=1 WHERE id=?", (new_content, msg_id))
+    conn.execute('UPDATE "messages" SET content=?, is_edited=1 WHERE id=?', (new_content, msg_id))
     conn.commit()
     conn.close()
     return jsonify({"message": "Edited"})
@@ -718,7 +722,7 @@ def delete_message(msg_id):
     if not user: return jsonify({"error": "Unauthorized"}), 401
     
     conn = get_db()
-    msg = conn.execute("SELECT * FROM messages WHERE id=?", (msg_id,)).fetchone()
+    msg = conn.execute('SELECT * FROM "messages" WHERE id=?', (msg_id,)).fetchone()
     if not msg:
         conn.close()
         return jsonify({"error": "Message not found"}), 404
@@ -727,7 +731,7 @@ def delete_message(msg_id):
         conn.close()
         return jsonify({"error": "Not authorized to delete"}), 403
         
-    conn.execute("UPDATE messages SET is_deleted=1 WHERE id=?", (msg_id,))
+    conn.execute('UPDATE "messages" SET is_deleted=1 WHERE id=?', (msg_id,))
     conn.commit()
     conn.close()
     return jsonify({"message": "Deleted"})
@@ -740,7 +744,7 @@ def recover_message(msg_id):
         return jsonify({"error": "Unauthorized"}), 401
     
     conn = get_db()
-    conn.execute("UPDATE messages SET is_deleted=0 WHERE id=?", (msg_id,))
+    conn.execute('UPDATE "messages" SET is_deleted=0 WHERE id=?', (msg_id,))
     conn.commit()
     conn.close()
     return jsonify({"message": "Message recovered"})
@@ -756,10 +760,10 @@ def mark_read():
     
     conn = get_db()
     if room_id == 'group':
-        msgs = conn.execute("SELECT id, seen_by FROM messages WHERE receiver_id='group' AND sender_id != ?", (user['id'],)).fetchall()
+        msgs = conn.execute('SELECT id, seen_by FROM "messages" WHERE receiver_id=\'group\' AND sender_id != ?', (user['id'],)).fetchall()
     else:
         # DMs
-        msgs = conn.execute("SELECT id, seen_by FROM messages WHERE receiver_id=? AND sender_id=?", (user['id'], room_id)).fetchall()
+        msgs = conn.execute('SELECT id, seen_by FROM "messages" WHERE receiver_id=? AND sender_id=?', (user['id'], room_id)).fetchall()
         
     import json
     for m in msgs:
@@ -770,7 +774,7 @@ def mark_read():
             
         if user['id'] not in seen_list:
             seen_list.append(user['id'])
-            conn.execute("UPDATE messages SET seen_by=? WHERE id=?", (json.dumps(seen_list), m['id']))
+            conn.execute('UPDATE "messages" SET seen_by=? WHERE id=?', (json.dumps(seen_list), m['id']))
             
     conn.commit()
     conn.close()
@@ -785,7 +789,7 @@ def chat_users():
     conn = get_db()
     
     # Simple check for who we have talked with before
-    conversations = conn.execute("SELECT DISTINCT sender_id, receiver_id FROM messages WHERE sender_id = ? OR receiver_id = ?", (user['id'], user['id'])).fetchall()
+    conversations = conn.execute('SELECT DISTINCT sender_id, receiver_id FROM "messages" WHERE sender_id = ? OR receiver_id = ?', (user['id'], user['id'])).fetchall()
     talked_set = set()
     for c in conversations:
         talked_set.add(c['sender_id'])
@@ -846,25 +850,27 @@ def update_profile_pic():
     pic = data.get('profile_pic')
     
     conn = get_db()
-    conn.execute("UPDATE users SET profile_pic=? WHERE id=?", (pic, user['id']))
+    conn.execute('UPDATE "users" SET profile_pic=? WHERE id=?', (pic, user['id']))
     conn.commit()
     conn.close()
     return jsonify({"message": "Profile picture updated"})
 @app.route('/stats', methods=['GET'])
 def get_stats():
     conn = get_db()
-    users_count = conn.execute('SELECT COUNT(*) FROM "users"').fetchone()[0]
-    locks_count = conn.execute('SELECT COUNT(*) FROM "locks"').fetchone()[0]
-    
-    today = datetime.datetime.now().strftime('%Y-%m-%d')
-    unlocks_today = conn.execute('SELECT COUNT(*) FROM "audit_logs" WHERE result=\'Success\' AND action=\'Unlock\' AND timestamp LIKE ?', (today + '%',)).fetchone()[0]
-    conn.close()
-    
-    return jsonify({
-        "users": users_count,
-        "locks": locks_count,
-        "unlocks_today": unlocks_today
-    })
+    try:
+        users_count = conn.execute('SELECT COUNT(*) FROM "users"').fetchone()[0]
+        locks_count = conn.execute('SELECT COUNT(*) FROM "locks"').fetchone()[0]
+        
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        unlocks_today = conn.execute('SELECT COUNT(*) FROM "audit_logs" WHERE result=\'Success\' AND action=\'Unlock\' AND timestamp LIKE ?', (today + '%',)).fetchone()[0]
+        
+        return jsonify({
+            "users": users_count,
+            "locks": locks_count,
+            "unlocks_today": unlocks_today
+        })
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

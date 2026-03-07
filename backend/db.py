@@ -16,31 +16,32 @@ DB_URL = os.environ.get("DATABASE_URL")
 if DB_URL and DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
 
-# Create a single shared connection pool (min=1, max=3 connections)
-# This prevents "too many connections" errors on the free PostgreSQL tier
+# Create a single shared connection pool (min=1, max=20 connections)
+# ThreadedConnectionPool is REQUIRED for multi-threaded Flask apps
 _pg_pool = None
 if DB_URL and psycopg2_pool:
     try:
-        _pg_pool = psycopg2_pool.SimpleConnectionPool(1, 3, DB_URL)
-        print("[db] PostgreSQL connection pool created successfully.")
+        _pg_pool = psycopg2_pool.ThreadedConnectionPool(1, 20, DB_URL)
+        print("[db] PostgreSQL Threaded Pool created (max=20).")
     except Exception as e:
-        print(f"[db] WARNING: Could not create PostgreSQL pool: {e}. Falling back to SQLite.")
+        print(f"[db] WARNING: Could not create PostgreSQL pool: {e}")
 
-class PostgresCursorWrapper:
-    def __init__(self, cursor):
+class DbCursorWrapper:
+    def __init__(self, cursor, is_pg=False):
         self.cursor = cursor
+        self.is_pg = is_pg
 
     def execute(self, query, params=None):
-        # Replace ? with %s for psycopg2
-        query = query.replace("?", "%s")
-
-        # Handle INSERT OR IGNORE -> INSERT ... ON CONFLICT DO NOTHING
-        # Must check for "INSERT OR IGNORE INTO" before replacing "INSERT OR IGNORE"
-        if re.search(r'INSERT\s+OR\s+IGNORE', query, re.IGNORECASE):
-            query = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', query, flags=re.IGNORECASE)
-            query = query.rstrip().rstrip(';')
-            query += " ON CONFLICT DO NOTHING"
-
+        if self.is_pg:
+            # Postgres translations
+            query = query.replace("?", "%s")
+            if re.search(r'INSERT\s+OR\s+IGNORE', query, re.IGNORECASE):
+                query = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', query, flags=re.IGNORECASE)
+                query = query.rstrip().rstrip(';')
+                query += " ON CONFLICT DO NOTHING"
+        
+        # SQLite handles "INSERT OR IGNORE" natively, no change needed
+        
         if params is None:
             self.cursor.execute(query)
         else:
@@ -54,19 +55,21 @@ class PostgresCursorWrapper:
     def fetchall(self):
         results = self.cursor.fetchall()
         return [dict(r) for r in results] if results else []
+    
+    def __iter__(self):
+        return iter(self.fetchall())
 
-    def __getitem__(self, key):
-        return self.cursor.fetchone()[key]
-
-
-class PostgresConnectionWrapper:
-    def __init__(self, conn, pool=None):
+class DbConnectionWrapper:
+    def __init__(self, conn, pool=None, is_pg=False):
         self.conn = conn
-        self._pool = pool       # keep reference to release back to pool
-        self.row_factory = None
+        self._pool = pool
+        self.is_pg = is_pg
 
     def cursor(self):
-        return PostgresCursorWrapper(self.conn.cursor(cursor_factory=DictCursor))
+        if self.is_pg:
+            return DbCursorWrapper(self.conn.cursor(cursor_factory=DictCursor), is_pg=True)
+        else:
+            return DbCursorWrapper(self.conn.cursor(), is_pg=False)
 
     def execute(self, query, params=None):
         cur = self.cursor()
@@ -80,23 +83,22 @@ class PostgresConnectionWrapper:
         self.conn.rollback()
 
     def close(self):
-        # Return connection back to the pool instead of destroying it
-        if self._pool:
+        if self.is_pg and self._pool:
             self._pool.putconn(self.conn)
         else:
             self.conn.close()
 
-
 def get_db():
-    # Use the pool if available, otherwise fall back to SQLite
     if _pg_pool:
         try:
-            conn = _pg_pool.getconn()   # borrow a connection from the pool
-            return PostgresConnectionWrapper(conn, pool=_pg_pool)
+            conn = _pg_pool.getconn()
+            return DbConnectionWrapper(conn, pool=_pg_pool, is_pg=True)
         except Exception as e:
-            print(f"[db] WARNING: PostgreSQL pool failed ({e}), falling back to SQLite.")
-    # Fallback to SQLite if pool is unavailable or exhausted
+            print(f"[db] WARNING: Pool exhausted or failed ({e}). Attempting direct fallback.")
+    
+    # Fallback to local SQLite
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
-    return conn
+    return DbConnectionWrapper(conn, is_pg=False)
+
 
