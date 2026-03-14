@@ -5,3 +5,5 @@ pqcrypto
 cryptography
 gunicorn
 psycopg2-binary
+PyJWT
+Flask-Limiter

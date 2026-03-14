@@ -10,9 +10,22 @@ import ecdh
 import random
 import smtplib
 from email.message import EmailMessage
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 app = Flask(__name__)
 CORS(app)
+
+SECRET_KEY = "hpqc_secure_jwt_secret" # In production, this should be in an env var
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
 
 import traceback
 from werkzeug.exceptions import HTTPException
@@ -46,10 +59,9 @@ import random
 def init_db():
     print("[init_db] Running FINAL RELIABILITY initialization...")
     
-    # We create BOTH plural and singular to be 100% demo-safe
+    # Consistently use plural 'users' for production
     tables = [
-        ("users", "(id VARCHAR(255) PRIMARY KEY, email VARCHAR(255) UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)"),
-        ("user", "(id VARCHAR(255) PRIMARY KEY, email VARCHAR(255) UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT)"),
+        ("users", "(id VARCHAR(255) PRIMARY KEY, email VARCHAR(255) UNIQUE, password TEXT, role TEXT, name TEXT, approved INTEGER, last_active TEXT, profile_pic TEXT, created_at TEXT)"),
         ("locks", "(id VARCHAR(255) PRIMARY KEY, name TEXT, status TEXT, type TEXT, approved INTEGER, token TEXT, last_unlocked_by TEXT, last_unlocked_at TEXT)"),
         ("permissions", "(user_id VARCHAR(255), lock_id VARCHAR(255), UNIQUE(user_id, lock_id))"),
         ("audit_logs", "(id VARCHAR(255) PRIMARY KEY, user_id TEXT, user_name TEXT, lock_id TEXT, lock_name TEXT, action TEXT, result TEXT, message TEXT, timestamp TEXT)"),
@@ -70,21 +82,40 @@ def init_db():
         finally:
             conn.close()
 
+    # Create indices
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        c.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON "users" (email)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON "audit_logs" (user_id)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_audit_logs_lock_id ON "audit_logs" (lock_id)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_messages_receiver ON "messages" (receiver_id)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_permissions_user_id ON "permissions" (user_id)')
+        conn.commit()
+        print("[init_db] Indices verified.")
+    except Exception as e:
+        print(f"[init_db] Indices update error: {e}")
+    finally:
+        conn.close()
+
     # Seed Default Data (Quoted Names)
     conn = get_db()
     c = conn.cursor()
     try:
-        # Seed both 'users' and 'user' tables
-        for t in ["users", "user"]:
-            c.execute(f'SELECT * FROM "{t}" WHERE email=?', ('admin@example.com',))
-            if not c.fetchone():
-                c.execute(f'INSERT INTO "{t}" (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)',
-                          ('a1', 'admin@example.com', 'admin', 'Admin', 'Administrator', 1))
+        # Seed 'users' table with hashed passwords
+        admin_pass = generate_password_hash('admin')
+        user_pass = generate_password_hash('password')
+        now = datetime.datetime.now().isoformat()
 
-            c.execute(f'SELECT * FROM "{t}" WHERE email=?', ('user@example.com',))
-            if not c.fetchone():
-                c.execute(f'INSERT INTO "{t}" (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)',
-                          ('u1', 'user@example.com', 'password', 'User', 'Employee', 1))
+        c.execute('SELECT * FROM "users" WHERE email=?', ('admin@example.com',))
+        if not c.fetchone():
+            c.execute('INSERT INTO "users" (id, email, password, role, name, approved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                      ('a1', 'admin@example.com', admin_pass, 'Admin', 'Administrator', 1, now))
+
+        c.execute('SELECT * FROM "users" WHERE email=?', ('user@example.com',))
+        if not c.fetchone():
+            c.execute('INSERT INTO "users" (id, email, password, role, name, approved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                      ('u1', 'user@example.com', user_pass, 'User', 'Employee', 1, now))
 
         # Seed locks
         c.execute('SELECT * FROM "locks" WHERE id=?', ('lock1',))
@@ -105,13 +136,30 @@ init_db()
 def get_user_from_token(token):
     if not token: return None
     if token.startswith("token_lock_"): return None
-    user_id = token.replace("token_", "")
+    
+    user_id = None
+    try:
+        decoded = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        user_id = decoded.get("user_id")
+    except jwt.ExpiredSignatureError:
+        return None  # Token expired
+    except jwt.InvalidTokenError:
+        # Fallback for old sessions to not abruptly break current users during the update
+        if token.startswith("token_"):
+            user_id = token.replace("token_", "")
+        else:
+            return None
+
+    if not user_id:
+        return None
+
     conn = get_db()
     user = conn.execute('SELECT * FROM "users" WHERE id=?', (user_id,)).fetchone()
     conn.close()
     return dict(user) if user else None
 
 @app.route('/login', methods=['POST'])
+@limiter.limit("5 per minute")
 def login():
     data = request.json
     email = data.get('email')
@@ -129,12 +177,19 @@ def login():
 
     user = conn.execute('SELECT * FROM "users" WHERE email=?', (email,)).fetchone()
     conn.close()
-    if user and user['password'] == password:
+    
+    # Verify hashed password
+    if user and check_password_hash(user['password'], password):
         if user['role'] != 'Admin' and dict(user).get('approved', 1) == 0:
             return jsonify({"error": "Account pending Admin approval."}), 403
             
+        token = jwt.encode({
+            "user_id": user['id'],
+            "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24) # 24 hour expiry
+        }, SECRET_KEY, algorithm="HS256")
+
         return jsonify({
-            "token": f"token_{user['id']}", 
+            "token": token, 
             "role": user['role'], 
             "id": user['id'], 
             "name": user['name']
@@ -156,8 +211,10 @@ def register_user():
         return jsonify({"error": "Email already exists"}), 400
         
     user_id = "u_" + str(uuid.uuid4()).split('-')[0]
-    conn.execute('INSERT INTO "users" (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)',
-                 (user_id, email, password, role, name, 1)) # Direct API registration currently auto-approves
+    hashed_pass = generate_password_hash(password)
+    now = datetime.datetime.now().isoformat()
+    conn.execute('INSERT INTO "users" (id, email, password, role, name, approved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                 (user_id, email, hashed_pass, role, name, 1, now)) # Direct API registration currently auto-approves
     conn.commit()
     conn.close()
     return jsonify({"message": "User registered successfully", "id": user_id})
@@ -226,9 +283,11 @@ def verify_signup():
     signup_otps.pop(email, None)
     
     user_id = "u_" + str(uuid.uuid4()).split('-')[0]
+    hashed_pass = generate_password_hash(password)
+    now = datetime.datetime.now().isoformat()
     conn = get_db()
-    conn.execute('INSERT INTO "users" (id, email, password, role, name, approved) VALUES (?, ?, ?, ?, ?, ?)',
-                 (user_id, email, password, "User", name, 0)) # Set to 0 = Needs Admin Approval
+    conn.execute('INSERT INTO "users" (id, email, password, role, name, approved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                 (user_id, email, hashed_pass, "User", name, 0, now)) # Set to 0 = Needs Admin Approval
     conn.commit()
     conn.close()
     return jsonify({"message": "Email verified! Account created and is now awaiting Admin approval."})
@@ -336,11 +395,12 @@ def change_password():
     old_pass = data.get('oldPassword')
     new_pass = data.get('newPassword')
     
-    if user['password'] != old_pass:
+    if not check_password_hash(user['password'], old_pass):
         return jsonify({"error": "Incorrect current password"}), 400
         
     conn = get_db()
-    conn.execute('UPDATE "users" SET password=? WHERE id=?', (new_pass, user['id']))
+    hashed_new = generate_password_hash(new_pass)
+    conn.execute('UPDATE "users" SET password=? WHERE id=?', (hashed_new, user['id']))
     conn.commit()
     conn.close()
     return jsonify({"message": "Password updated successfully"})
